@@ -1,7 +1,9 @@
 export const config = { runtime: "edge" };
 
-const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
-const STORE_KEY  = "recipes.json";
+const TOKEN = process.env.GITHUB_TOKEN;
+const REPO  = process.env.GITHUB_REPO;   // 例: kikitetsu-8284/recipe-app
+const FILE  = "data/recipes.json";
+const API   = `https://api.github.com/repos/${REPO}/contents/${FILE}`;
 
 const H = {
   "Access-Control-Allow-Origin":  "*",
@@ -10,46 +12,38 @@ const H = {
   "Content-Type": "application/json",
 };
 
-// ── Vercel Blob helpers ────────────────────────────────────────────────
-async function listBlob() {
-  const r = await fetch(
-    `https://blob.vercel-storage.com?prefix=${STORE_KEY}&limit=1`,
-    { headers: { authorization: `Bearer ${BLOB_TOKEN}` } }
-  );
+const ghHeaders = {
+  Authorization: `token ${TOKEN}`,
+  Accept: "application/vnd.github.v3+json",
+  "User-Agent": "recipe-app",
+};
+
+async function readFile() {
+  const r = await fetch(API, { headers: ghHeaders });
+  if (r.status === 404) return { recipes: [], sha: null };
   const j = await r.json();
-  return j.blobs?.[0] ?? null;
+  const content = JSON.parse(atob(j.content.replace(/\n/g, "")));
+  return { recipes: content, sha: j.sha };
 }
 
-async function readRecipes() {
-  const blob = await listBlob();
-  if (!blob) return [];
-  const r = await fetch(blob.url);
-  return r.ok ? r.json() : [];
-}
-
-async function writeRecipes(recipes) {
-  const body = JSON.stringify(recipes);
-  await fetch("https://blob.vercel-storage.com", {
-    method:  "PUT",
-    headers: {
-      authorization:      `Bearer ${BLOB_TOKEN}`,
-      "x-vercel-filename": STORE_KEY,
-      "content-type":      "application/json",
-      "x-allow-overwrite": "1",
-    },
-    body,
+async function writeFile(recipes, sha) {
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(recipes, null, 2))));
+  const body = { message: "update recipes", content, ...(sha ? { sha } : {}) };
+  await fetch(API, {
+    method: "PUT",
+    headers: { ...ghHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
-// ── Handler ────────────────────────────────────────────────────────────
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: H });
-  if (!BLOB_TOKEN)
-    return new Response(JSON.stringify({ error: "BLOB_READ_WRITE_TOKEN 未設定" }), { status: 500, headers: H });
+  if (!TOKEN || !REPO)
+    return new Response(JSON.stringify({ error: "GITHUB_TOKEN / GITHUB_REPO 未設定" }), { status: 500, headers: H });
 
   try {
     if (req.method === "GET") {
-      const recipes = await readRecipes();
+      const { recipes } = await readFile();
       return new Response(JSON.stringify(recipes), { headers: H });
     }
 
@@ -58,24 +52,28 @@ export default async function handler(req) {
       if (!body.id || !body.name)
         return new Response(JSON.stringify({ error: "id と name は必須" }), { status: 400, headers: H });
 
-      const recipes = await readRecipes();
-      const recipe  = {
+      const { recipes, sha } = await readFile();
+      const recipe = {
         id: body.id, name: body.name,
-        category: body.category || "", cookTime: body.cookTime || "",
-        servings: body.servings || "", note: body.note || "",
-        sourceUrl: body.sourceUrl || "",
-        ingredients: body.ingredients || [], steps: body.steps || [],
-        images: body.images || [],
-        createdAt: body.createdAt || Date.now(),
-        updatedAt: body.updatedAt || Date.now(),
+        category:    body.category    || "",
+        cookTime:    body.cookTime    || "",
+        servings:    body.servings    || "",
+        note:        body.note        || "",
+        sourceUrl:   body.sourceUrl   || "",
+        ingredients: body.ingredients || [],
+        steps:       body.steps       || [],
+        images:      body.images      || [],
+        createdAt:   body.createdAt   || Date.now(),
+        updatedAt:   Date.now(),
       };
       recipes.unshift(recipe);
-      await writeRecipes(recipes);
+      await writeFile(recipes, sha);
       return new Response(JSON.stringify({ ok: true, recipe }), { headers: H });
     }
 
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: H });
   } catch (err) {
+    console.error(err);
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: H });
   }
 }

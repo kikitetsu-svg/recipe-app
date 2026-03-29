@@ -1,7 +1,9 @@
 export const config = { runtime: "edge" };
 
-const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
-const STORE_KEY  = "recipes.json";
+const TOKEN = process.env.GITHUB_TOKEN;
+const REPO  = process.env.GITHUB_REPO;
+const FILE  = "data/recipes.json";
+const API   = `https://api.github.com/repos/${REPO}/contents/${FILE}`;
 
 const H = {
   "Access-Control-Allow-Origin":  "*",
@@ -10,41 +12,39 @@ const H = {
   "Content-Type": "application/json",
 };
 
-async function readRecipes() {
-  const r = await fetch(
-    `https://blob.vercel-storage.com?prefix=${STORE_KEY}&limit=1`,
-    { headers: { authorization: `Bearer ${BLOB_TOKEN}` } }
-  );
+const ghHeaders = {
+  Authorization: `token ${TOKEN}`,
+  Accept: "application/vnd.github.v3+json",
+  "User-Agent": "recipe-app",
+};
+
+async function readFile() {
+  const r = await fetch(API, { headers: ghHeaders });
+  if (r.status === 404) return { recipes: [], sha: null };
   const j = await r.json();
-  const blob = j.blobs?.[0];
-  if (!blob) return [];
-  const d = await fetch(blob.url);
-  return d.ok ? d.json() : [];
+  const content = JSON.parse(atob(j.content.replace(/\n/g, "")));
+  return { recipes: content, sha: j.sha };
 }
 
-async function writeRecipes(recipes) {
-  await fetch("https://blob.vercel-storage.com", {
-    method:  "PUT",
-    headers: {
-      authorization:      `Bearer ${BLOB_TOKEN}`,
-      "x-vercel-filename": STORE_KEY,
-      "content-type":      "application/json",
-      "x-allow-overwrite": "1",
-    },
-    body: JSON.stringify(recipes),
+async function writeFile(recipes, sha) {
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(recipes, null, 2))));
+  const body = { message: "update recipes", content, ...(sha ? { sha } : {}) };
+  await fetch(API, {
+    method: "PUT",
+    headers: { ...ghHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: H });
-  if (!BLOB_TOKEN)
-    return new Response(JSON.stringify({ error: "BLOB_READ_WRITE_TOKEN 未設定" }), { status: 500, headers: H });
+  if (!TOKEN || !REPO)
+    return new Response(JSON.stringify({ error: "GITHUB_TOKEN / GITHUB_REPO 未設定" }), { status: 500, headers: H });
 
   const id = new URL(req.url).pathname.split("/").pop();
-  if (!id) return new Response(JSON.stringify({ error: "id required" }), { status: 400, headers: H });
 
   try {
-    const recipes = await readRecipes();
+    const { recipes, sha } = await readFile();
 
     if (req.method === "GET") {
       const recipe = recipes.find(r => r.id === id);
@@ -54,22 +54,22 @@ export default async function handler(req) {
 
     if (req.method === "PUT") {
       const body = await req.json();
-      const idx  = recipes.findIndex(r => r.id === id);
+      const idx = recipes.findIndex(r => r.id === id);
       if (idx < 0) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: H });
-      const updated = { ...recipes[idx], ...body, id, updatedAt: Date.now() };
-      recipes[idx]  = updated;
-      await writeRecipes(recipes);
-      return new Response(JSON.stringify({ ok: true, recipe: updated }), { headers: H });
+      recipes[idx] = { ...recipes[idx], ...body, id, updatedAt: Date.now() };
+      await writeFile(recipes, sha);
+      return new Response(JSON.stringify({ ok: true, recipe: recipes[idx] }), { headers: H });
     }
 
     if (req.method === "DELETE") {
       const filtered = recipes.filter(r => r.id !== id);
-      await writeRecipes(filtered);
+      await writeFile(filtered, sha);
       return new Response(JSON.stringify({ ok: true }), { headers: H });
     }
 
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: H });
   } catch (err) {
+    console.error(err);
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: H });
   }
 }
