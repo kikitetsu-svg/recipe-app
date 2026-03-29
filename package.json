@@ -4,9 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "vercel dev",
-    "build": "echo 'static build'"
-  },
-  "dependencies": {
-    "@vercel/kv": "^2.0.0"
+    "build": "echo 'static'"
   }
 }

@@ -47,7 +47,22 @@ git push -u origin main
 
 ---
 
-### Step 3 — Vercel KV（データベース）を追加
+### Step 3 — 環境変数を追加（Anthropic APIキー）
+
+1. Vercelダッシュボード → プロジェクト → **Settings → Environment Variables**
+2. 以下を追加:
+
+| Name | Value |
+|------|-------|
+| `ANTHROPIC_API_KEY` | `sk-ant-...`（AnthropicのAPIキー） |
+
+3. **Save** をクリック
+
+> APIキーは https://console.anthropic.com/settings/keys から取得できます
+
+---
+
+### Step 4 — Vercel KV（データベース）を追加（データベース）を追加
 
 1. Vercelダッシュボードでプロジェクトを開く
 2. **Storage** タブ → **Create Database**
@@ -63,7 +78,7 @@ git push -u origin main
 
 ---
 
-### Step 4 — 再デプロイ
+### Step 5 — 再デプロイ
 
 KV接続のため再デプロイが必要:
 
@@ -72,7 +87,7 @@ KV接続のため再デプロイが必要:
 
 ---
 
-### Step 5 — 動作確認
+### Step 6 — 動作確認
 
 デプロイされたURL（例: `https://recipe-app-xxx.vercel.app`）を開いて:
 - レシピを追加 → 別のブラウザ・スマホでも表示されれば成功
@@ -105,6 +120,7 @@ KV_URL=rediss://...（Vercelダッシュボードからコピー）
 KV_REST_API_URL=https://...
 KV_REST_API_TOKEN=...
 KV_REST_API_READ_ONLY_TOKEN=...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ローカル起動:

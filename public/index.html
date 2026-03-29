@@ -786,15 +786,18 @@ URL: ${url}
 以下のJSON形式のみで返答してください（他のテキスト不要）:
 {"name":"料理名","category":"カテゴリ（和食/洋食/中華/イタリアン/アジア料理/デザート/スープ/サラダ/その他）","cookTime":"分数のみ","servings":"例: 2人分","ingredients":[{"amount":"分量","name":"材料名"}],"steps":["手順1","手順2"],"note":"コツ（あれば）"}`;
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    // /api/extract を経由（サーバーサイドでAPIキーを使用・CORSを回避）
+    const res = await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `サーバーエラー (${res.status})`);
+    }
     const data = await res.json();
     const text = data.content.map(c => c.text || '').join('');
     const match = text.match(/\{[\s\S]*\}/);
